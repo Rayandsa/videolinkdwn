@@ -12,8 +12,6 @@ RUN apt-get update && \
 # Set working directory
 WORKDIR /app
 
-# Set production environment
-ENV NODE_ENV=production
 
 # Copy package files
 COPY package*.json ./
@@ -29,6 +27,9 @@ RUN npm run build
 
 # Compile the custom server (server.ts -> dist/server/server.js)
 RUN npx tsc --project tsconfig.server.json
+
+# Set production environment for runtime (AFTER build to keep devDependencies during build)
+ENV NODE_ENV=production
 
 # Expose port
 EXPOSE 3000
