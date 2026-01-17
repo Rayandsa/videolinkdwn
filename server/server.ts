@@ -3,7 +3,9 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const next = require('next');
-const YTDlpWrap = require('yt-dlp-exec');
+const ytDlpExec = require('yt-dlp-exec');
+// Use system yt-dlp binary (installed via pip, always up-to-date)
+const YTDlpWrap = ytDlpExec.create('yt-dlp');
 
 const dev = process.env.NODE_ENV !== 'production';
 console.log(`[SERVER] Starting in ${dev ? 'development' : 'production'} mode`);

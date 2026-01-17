@@ -2,10 +2,10 @@
 # Use Node.js base image (Bookworm has Python 3.11, required by yt-dlp)
 FROM node:20-bookworm-slim
 
-# Install Python and FFmpeg (Required for yt-dlp)
+# Install Python, FFmpeg, and yt-dlp (latest version via pip)
 RUN apt-get update && \
     apt-get install -y python3 python3-pip python-is-python3 ffmpeg && \
-    apt-get clean && \
+    pip3 install --break-system-packages yt-dlp && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
