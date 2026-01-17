@@ -141,7 +141,7 @@ app.post('/api/download', async (req: any, res: any) => {
 // --- NEXT.JS HANDLER (Fallthrough) ---
 // This ensures that all other requests (like accessing the actual website) are handled by Next.js
 nextApp.prepare().then(() => {
-    app.all('*', (req: any, res: any) => {
+    app.all(/(.*)/, (req: any, res: any) => {
         return handle(req, res);
     });
 
