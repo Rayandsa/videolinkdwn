@@ -27,7 +27,7 @@ export default function Home() {
     setMetadata(null);
 
     try {
-      const response = await axios.post('http://localhost:3001/api/info', {
+      const response = await axios.post('/api/info', {
         url,
         platform: activeTab
       });
@@ -54,7 +54,7 @@ export default function Home() {
       // Fake progress for UX initially (jump to 10%)
       setDownloadProgress(10);
 
-      const response = await axios.post('http://localhost:3001/api/download', {
+      const response = await axios.post('/api/download', {
         url: metadata.originalUrl,
         platform: activeTab,
         format: format,
