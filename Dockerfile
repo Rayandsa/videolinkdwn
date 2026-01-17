@@ -25,7 +25,7 @@ COPY . .
 RUN npm run build
 
 # Compile the custom server (server.ts -> dist/server/server.js)
-RUN npx tsc --project tsconfig.json
+RUN npx tsc --project tsconfig.server.json
 
 # Expose port
 EXPOSE 3000
