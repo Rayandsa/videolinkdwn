@@ -31,4 +31,5 @@ RUN npx tsc --project tsconfig.server.json
 EXPOSE 3000
 
 # Start the application using pure Node (lighter than ts-node)
-CMD ["node", "dist/server/server.js"]
+# Debug: List files to see where server.js ended up, then try to run it
+CMD ["sh", "-c", "ls -R dist && node dist/server/server.js"]
