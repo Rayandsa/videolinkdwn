@@ -1,6 +1,6 @@
 
 # Use Node.js base image
-FROM node:18-bullseye-slim
+FROM node:20-bullseye-slim
 
 # Install Python and FFmpeg (Required for yt-dlp)
 RUN apt-get update && \
