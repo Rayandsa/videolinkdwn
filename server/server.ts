@@ -6,7 +6,8 @@ const next = require('next');
 const YTDlpWrap = require('yt-dlp-exec');
 
 const dev = process.env.NODE_ENV !== 'production';
-const nextApp = next({ dev });
+console.log(`[SERVER] Starting in ${dev ? 'development' : 'production'} mode`);
+const nextApp = next({ dev, dir: process.cwd() }); // Explicitly set dir to current working directory
 const handle = nextApp.getRequestHandler();
 
 const app = express();
