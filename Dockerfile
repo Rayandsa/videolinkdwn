@@ -12,6 +12,9 @@ RUN apt-get update && \
 # Set working directory
 WORKDIR /app
 
+# Set production environment
+ENV NODE_ENV=production
+
 # Copy package files
 COPY package*.json ./
 
