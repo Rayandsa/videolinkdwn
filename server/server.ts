@@ -54,9 +54,9 @@ app.post('/api/info', async (req: any, res: any) => {
         const output = await YTDlpWrap(url, {
             dumpJson: true,
             noWarnings: true,
-            preferFreeFormats: true,
+            noCheckCertificates: true,
             userAgent: USER_AGENT,
-            extractorArgs: 'youtube:player_client=android,ios'
+            format: 'best'
         });
 
         const metadata = {
@@ -100,20 +100,20 @@ app.post('/api/download', async (req: any, res: any) => {
     const flags: any = {
         noWarnings: true,
         noPlaylist: true,
-        preferFreeFormats: true,
+        noCheckCertificates: true,
         userAgent: USER_AGENT,
         output: outputPath,
-        ffmpegLocation: require('ffmpeg-static'),
-        extractorArgs: 'youtube:player_client=android,ios'
+        ffmpegLocation: require('ffmpeg-static')
     };
 
     if (format === 'mp3') {
         flags.extractAudio = true;
         flags.audioFormat = 'mp3';
         flags.audioQuality = 0;
+        flags.format = 'bestaudio/best';
     } else {
-        flags.format = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best";
-        flags.mergeOutputFormat = 'mp4';
+        // Use combined 'best' format to avoid 403 errors with separate streams
+        flags.format = 'best[ext=mp4]/best';
     }
 
     try {
