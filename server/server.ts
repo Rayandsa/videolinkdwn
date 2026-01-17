@@ -53,7 +53,8 @@ app.post('/api/info', async (req: any, res: any) => {
             dumpJson: true,
             noWarnings: true,
             preferFreeFormats: true,
-            userAgent: USER_AGENT
+            userAgent: USER_AGENT,
+            extractorArgs: 'youtube:player_client=android,ios'
         });
 
         const metadata = {
@@ -100,7 +101,8 @@ app.post('/api/download', async (req: any, res: any) => {
         preferFreeFormats: true,
         userAgent: USER_AGENT,
         output: outputPath,
-        ffmpegLocation: require('ffmpeg-static') // Auto-detects ffmpeg path
+        ffmpegLocation: require('ffmpeg-static'),
+        extractorArgs: 'youtube:player_client=android,ios'
     };
 
     if (format === 'mp3') {
