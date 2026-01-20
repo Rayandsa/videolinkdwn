@@ -139,7 +139,10 @@ app.post('/api/download', async (req: any, res: any) => {
     const { url, format, title } = req.body;
     if (!url) return res.status(400).json({ error: 'URL required' });
 
-    const downloadsDir = path.join(__dirname, 'downloads');
+    // Use absolute path for downloads directory (matches Dockerfile)
+    const downloadsDir = process.env.NODE_ENV === 'production'
+        ? '/app/dist/downloads'
+        : path.join(__dirname, 'downloads');
     if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
 
     // Sanitize title

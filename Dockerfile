@@ -25,8 +25,8 @@ RUN npm install
 # Copy source code
 COPY . .
 
-# Create downloads directory
-RUN mkdir -p /app/dist/downloads
+# Create downloads directory with full permissions
+RUN mkdir -p /app/dist/downloads && chmod -R 777 /app/dist/downloads
 
 # Build the Next.js app
 RUN npm run build
