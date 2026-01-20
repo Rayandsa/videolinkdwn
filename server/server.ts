@@ -18,6 +18,7 @@ const PORT = process.env.PORT || 3000;
 
 // 2026 Method Configuration
 const COOKIES_FILE = process.env.COOKIES_FILE || '/app/cookies.txt';
+const COOKIES_INSTAGRAM = process.env.COOKIES_INSTAGRAM || '/app/cookies_instagram.txt';
 const PO_TOKEN = process.env.PO_TOKEN || '';
 const VISITOR_DATA = process.env.VISITOR_DATA || '';
 
@@ -27,30 +28,63 @@ app.use(cors());
 app.use(express.json());
 
 // Helper: Check if cookies file exists
-const hasCookies = (): boolean => {
-    return fs.existsSync(COOKIES_FILE);
+const hasCookies = (cookieFile: string = COOKIES_FILE): boolean => {
+    const exists = fs.existsSync(cookieFile);
+    if (exists) {
+        console.log(`[COOKIES] Found: ${cookieFile}`);
+    }
+    return exists;
+};
+
+// Helper: Detect platform from URL
+const detectPlatform = (url: string): string => {
+    if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube';
+    if (url.includes('instagram.com')) return 'instagram';
+    if (url.includes('tiktok.com')) return 'tiktok';
+    return 'unknown';
 };
 
 // Helper: Build yt-dlp command with 2026 method authentication
-const buildYtDlpCommand = (url: string, additionalArgs: string[] = []): string => {
+const buildYtDlpCommand = (url: string, additionalArgs: string[] = [], forceYouTubeAuth: boolean = false): string => {
     const args: string[] = ['yt-dlp'];
+    const platform = detectPlatform(url);
 
-    // Add cookies if available
-    if (hasCookies()) {
-        args.push(`--cookies "${COOKIES_FILE}"`);
-        console.log('[YT-DLP] Using cookies file for authentication');
-    }
+    console.log(`[YT-DLP] Building command for platform: ${platform}`);
 
-    // Add PO-Token if available (2026 method)
-    if (PO_TOKEN) {
-        args.push(`--extractor-args "youtube:player_client=web,default;po_token=web+${PO_TOKEN}"`);
-        console.log('[YT-DLP] Using PO-Token for authentication');
-    }
+    // Platform-specific cookies
+    if (platform === 'instagram') {
+        // Use Instagram-specific cookies if available
+        if (hasCookies(COOKIES_INSTAGRAM)) {
+            args.push(`--cookies "${COOKIES_INSTAGRAM}"`);
+            console.log('[YT-DLP] Using Instagram cookies file');
+        } else if (hasCookies(COOKIES_FILE)) {
+            args.push(`--cookies "${COOKIES_FILE}"`);
+            console.log('[YT-DLP] Using generic cookies file for Instagram');
+        } else {
+            console.log('[YT-DLP] WARNING: No Instagram cookies available - Oracle IPs may be blocked!');
+        }
+    } else if (platform === 'youtube' || forceYouTubeAuth) {
+        // YouTube authentication with 2026 method
+        if (hasCookies(COOKIES_FILE)) {
+            args.push(`--cookies "${COOKIES_FILE}"`);
+        }
 
-    // Add Visitor Data if available
-    if (VISITOR_DATA) {
-        args.push(`--extractor-args "youtube:visitor_data=${VISITOR_DATA}"`);
-        console.log('[YT-DLP] Using Visitor Data');
+        // PO-Token and Visitor Data - CRITICAL for YouTube downloads
+        if (PO_TOKEN) {
+            // Use extractor-args for authentication
+            args.push(`--extractor-args "youtube:player_client=web,default;po_token=web+${PO_TOKEN}"`);
+            console.log('[YT-DLP] Using PO-Token for YouTube authentication');
+        }
+
+        if (VISITOR_DATA) {
+            args.push(`--extractor-args "youtube:visitor_data=${VISITOR_DATA}"`);
+            console.log('[YT-DLP] Using Visitor Data for YouTube');
+        }
+    } else {
+        // Generic - use main cookies file if available
+        if (hasCookies(COOKIES_FILE)) {
+            args.push(`--cookies "${COOKIES_FILE}"`);
+        }
     }
 
     // Common arguments
@@ -58,6 +92,7 @@ const buildYtDlpCommand = (url: string, additionalArgs: string[] = []): string =
     args.push('--no-check-certificates');
     args.push(`--user-agent "${USER_AGENT}"`);
     args.push('--no-playlist');
+    args.push('--verbose'); // Enable verbose for debugging
 
     // Add any additional arguments
     args.push(...additionalArgs);
@@ -75,7 +110,7 @@ const cleanup = (filePaths: string | string[]) => {
         paths.forEach(filePath => {
             if (filePath && fs.existsSync(filePath)) {
                 fs.unlink(filePath, (err: any) => {
-                    if (err) console.error(`Error deleting temp file ${filePath}:`, err);
+                    if (err) console.error(`[CLEANUP] Error deleting ${filePath}:`, err);
                     else console.log(`[CLEANUP] Deleted: ${filePath}`);
                 });
             }
@@ -83,19 +118,20 @@ const cleanup = (filePaths: string | string[]) => {
     }, 5000);
 };
 
-// Helper: Cleanup multiple files matching pattern
-const cleanupPattern = (dir: string, pattern: string) => {
-    if (!fs.existsSync(dir)) return;
-    const files = fs.readdirSync(dir);
-    files.forEach((file: string) => {
-        if (file.includes(pattern)) {
-            const filePath = path.join(dir, file);
-            fs.unlink(filePath, (err: any) => {
-                if (err) console.error(`Error deleting ${filePath}:`, err);
-                else console.log(`[CLEANUP] Deleted temporary file: ${file}`);
-            });
-        }
-    });
+// Helper: Log detailed error from yt-dlp
+const logYtDlpError = (error: any, context: string) => {
+    console.error('='.repeat(60));
+    console.error(`[YT-DLP ERROR] Context: ${context}`);
+    console.error(`[YT-DLP ERROR] Message: ${error.message}`);
+    if (error.stderr) {
+        console.error(`[YT-DLP ERROR] STDERR Output:`);
+        console.error(error.stderr);
+    }
+    if (error.stdout) {
+        console.error(`[YT-DLP ERROR] STDOUT Output:`);
+        console.error(error.stdout);
+    }
+    console.error('='.repeat(60));
 };
 
 // --- API ROUTES ---
@@ -105,19 +141,26 @@ app.post('/api/info', async (req: any, res: any) => {
     if (!url) return res.status(400).json({ error: 'URL is required' });
 
     console.log(`[INFO] Fetching metadata for: ${url}`);
+    const detectedPlatform = detectPlatform(url);
+    console.log(`[INFO] Detected platform: ${detectedPlatform}`);
 
     try {
-        const command = buildYtDlpCommand(url, ['--dump-json', '-f best']);
-        console.log(`[YT-DLP] Command: ${command.replace(PO_TOKEN, '***').replace(VISITOR_DATA, '***')}`);
+        const command = buildYtDlpCommand(url, ['--dump-json', '-f best'], detectedPlatform === 'youtube');
+        console.log(`[YT-DLP] Info command: ${command.replace(PO_TOKEN, '***').replace(VISITOR_DATA, '***')}`);
 
-        const { stdout } = await execAsync(command, { maxBuffer: 10 * 1024 * 1024 });
+        const { stdout, stderr } = await execAsync(command, { maxBuffer: 10 * 1024 * 1024 });
+
+        if (stderr) {
+            console.log('[YT-DLP] Stderr (info):', stderr);
+        }
+
         const output = JSON.parse(stdout);
 
         const metadata = {
             title: output.title,
             thumbnail: output.thumbnail,
             duration: output.duration_string || 'Unknown',
-            platform: platform || 'video',
+            platform: platform || detectedPlatform,
             originalUrl: url
         };
 
@@ -127,11 +170,15 @@ app.post('/api/info', async (req: any, res: any) => {
             metadata.duration = `${minutes}:${seconds.toString().padStart(2, '0')}`;
         }
 
+        console.log(`[INFO] Success: ${metadata.title}`);
         res.json(metadata);
     } catch (error: any) {
-        console.error('Error fetching info:', error.message);
-        console.error('Stderr:', error.stderr);
-        res.status(500).json({ error: 'Failed to fetch video info', details: error.message });
+        logYtDlpError(error, 'Fetching video info');
+        res.status(500).json({
+            error: 'Failed to fetch video info',
+            details: error.message,
+            stderr: error.stderr || 'No stderr available'
+        });
     }
 });
 
@@ -139,11 +186,18 @@ app.post('/api/download', async (req: any, res: any) => {
     const { url, format, title } = req.body;
     if (!url) return res.status(400).json({ error: 'URL required' });
 
+    const detectedPlatform = detectPlatform(url);
+    console.log(`[DOWNLOAD] Platform: ${detectedPlatform}, URL: ${url}`);
+
     // Use absolute path for downloads directory (matches Dockerfile)
     const downloadsDir = process.env.NODE_ENV === 'production'
         ? '/app/dist/downloads'
         : path.join(__dirname, 'downloads');
-    if (!fs.existsSync(downloadsDir)) fs.mkdirSync(downloadsDir, { recursive: true });
+
+    if (!fs.existsSync(downloadsDir)) {
+        fs.mkdirSync(downloadsDir, { recursive: true });
+        console.log(`[DOWNLOAD] Created directory: ${downloadsDir}`);
+    }
 
     // Sanitize title
     const safeTitle = (title || 'video').replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 100);
@@ -156,117 +210,156 @@ app.post('/api/download', async (req: any, res: any) => {
     const tempVideoPath = path.join(downloadsDir, `${safeTitle}_${timestamp}_video.mp4`);
     const tempAudioPath = path.join(downloadsDir, `${safeTitle}_${timestamp}_audio.m4a`);
 
-    console.log(`[DOWNLOAD] Processing: ${url} -> ${outputPath}`);
+    console.log(`[DOWNLOAD] Output path: ${outputPath}`);
 
     try {
-        let downloadArgs: string[];
-
         if (format === 'mp3') {
             // Audio only download
-            downloadArgs = [
+            console.log('[DOWNLOAD] Mode: Audio extraction (MP3)');
+            const downloadArgs = [
                 '-f bestaudio',
                 '-x',
                 '--audio-format mp3',
                 '--audio-quality 0',
-                `--ffmpeg-location /usr/bin/ffmpeg`,
+                '--ffmpeg-location /usr/bin/ffmpeg',
                 `-o "${outputPath}"`
             ];
 
-            const command = buildYtDlpCommand(url, downloadArgs);
-            console.log(`[YT-DLP] Audio command: ${command.replace(PO_TOKEN, '***')}`);
-            await execAsync(command, { maxBuffer: 50 * 1024 * 1024 });
+            const command = buildYtDlpCommand(url, downloadArgs, detectedPlatform === 'youtube');
+            console.log(`[YT-DLP] Audio command: ${command.replace(PO_TOKEN, '***').replace(VISITOR_DATA, '***')}`);
+
+            const { stderr } = await execAsync(command, { maxBuffer: 50 * 1024 * 1024 });
+            if (stderr) console.log('[YT-DLP] Audio download stderr:', stderr);
+
+        } else if (detectedPlatform === 'youtube') {
+            // YouTube: 2026 Method - Download video and audio separately, then merge
+            console.log('[DOWNLOAD] Mode: YouTube 2026 method (separate streams + merge)');
+
+            // Download best video with full authentication
+            console.log('[YT-DLP] Step 1/3: Downloading video stream...');
+            const videoArgs = [
+                '-f "bestvideo[ext=mp4]/bestvideo"',
+                '--ffmpeg-location /usr/bin/ffmpeg',
+                `-o "${tempVideoPath}"`
+            ];
+            const videoCommand = buildYtDlpCommand(url, videoArgs, true); // Force YouTube auth
+            console.log(`[YT-DLP] Video command: ${videoCommand.replace(PO_TOKEN, '***').replace(VISITOR_DATA, '***')}`);
+
+            try {
+                const { stderr: videoStderr } = await execAsync(videoCommand, { maxBuffer: 200 * 1024 * 1024 });
+                if (videoStderr) console.log('[YT-DLP] Video download stderr:', videoStderr);
+            } catch (videoError: any) {
+                logYtDlpError(videoError, 'YouTube video stream download');
+                throw videoError;
+            }
+
+            // Download best audio with full authentication
+            console.log('[YT-DLP] Step 2/3: Downloading audio stream...');
+            const audioArgs = [
+                '-f "bestaudio[ext=m4a]/bestaudio"',
+                '--ffmpeg-location /usr/bin/ffmpeg',
+                `-o "${tempAudioPath}"`
+            ];
+            const audioCommand = buildYtDlpCommand(url, audioArgs, true); // Force YouTube auth
+            console.log(`[YT-DLP] Audio command: ${audioCommand.replace(PO_TOKEN, '***').replace(VISITOR_DATA, '***')}`);
+
+            try {
+                const { stderr: audioStderr } = await execAsync(audioCommand, { maxBuffer: 200 * 1024 * 1024 });
+                if (audioStderr) console.log('[YT-DLP] Audio download stderr:', audioStderr);
+            } catch (audioError: any) {
+                logYtDlpError(audioError, 'YouTube audio stream download');
+                throw audioError;
+            }
+
+            // Merge with ffmpeg
+            console.log('[YT-DLP] Step 3/3: Merging video and audio with FFmpeg...');
+            const mergeCommand = `ffmpeg -i "${tempVideoPath}" -i "${tempAudioPath}" -c:v copy -c:a aac -strict experimental "${outputPath}" -y`;
+            console.log(`[FFMPEG] Merge command: ${mergeCommand}`);
+
+            try {
+                const { stderr: mergeStderr } = await execAsync(mergeCommand, { maxBuffer: 200 * 1024 * 1024 });
+                if (mergeStderr) console.log('[FFMPEG] Merge stderr:', mergeStderr);
+            } catch (mergeError: any) {
+                logYtDlpError(mergeError, 'FFmpeg merge');
+                throw mergeError;
+            }
+
+            // Cleanup temporary files
+            console.log('[CLEANUP] Removing temporary video and audio files...');
+            cleanup([tempVideoPath, tempAudioPath]);
 
         } else {
-            // 2026 Method: Download best video + best audio separately, then merge with ffmpeg
-            const isYouTube = url.includes('youtube.com') || url.includes('youtu.be');
+            // Instagram, TikTok, others: Simple download
+            console.log(`[DOWNLOAD] Mode: Simple download for ${detectedPlatform}`);
+            const downloadArgs = [
+                '-f "best[ext=mp4]/best"',
+                '--ffmpeg-location /usr/bin/ffmpeg',
+                `-o "${outputPath}"`
+            ];
 
-            if (isYouTube) {
-                console.log('[DOWNLOAD] Using 2026 method: separate video+audio download with merge');
+            const command = buildYtDlpCommand(url, downloadArgs, false);
+            console.log(`[YT-DLP] Download command: ${command.replace(PO_TOKEN, '***').replace(VISITOR_DATA, '***')}`);
 
-                // Download best video
-                const videoArgs = [
-                    '-f "bestvideo[ext=mp4]/bestvideo"',
-                    `--ffmpeg-location /usr/bin/ffmpeg`,
-                    `-o "${tempVideoPath}"`
-                ];
-                const videoCommand = buildYtDlpCommand(url, videoArgs);
-                console.log('[YT-DLP] Downloading video stream...');
-                await execAsync(videoCommand, { maxBuffer: 100 * 1024 * 1024 });
-
-                // Download best audio
-                const audioArgs = [
-                    '-f "bestaudio[ext=m4a]/bestaudio"',
-                    `--ffmpeg-location /usr/bin/ffmpeg`,
-                    `-o "${tempAudioPath}"`
-                ];
-                const audioCommand = buildYtDlpCommand(url, audioArgs);
-                console.log('[YT-DLP] Downloading audio stream...');
-                await execAsync(audioCommand, { maxBuffer: 100 * 1024 * 1024 });
-
-                // Merge with ffmpeg
-                console.log('[FFMPEG] Merging video and audio...');
-                const mergeCommand = `ffmpeg -i "${tempVideoPath}" -i "${tempAudioPath}" -c:v copy -c:a aac -strict experimental "${outputPath}" -y`;
-                await execAsync(mergeCommand, { maxBuffer: 100 * 1024 * 1024 });
-
-                // Cleanup temporary files
-                console.log('[CLEANUP] Removing temporary video and audio files...');
-                cleanup([tempVideoPath, tempAudioPath]);
-
-            } else {
-                // For non-YouTube (Instagram, TikTok), use simple best format
-                downloadArgs = [
-                    '-f "best[ext=mp4]/best"',
-                    `--ffmpeg-location /usr/bin/ffmpeg`,
-                    `-o "${outputPath}"`
-                ];
-
-                const command = buildYtDlpCommand(url, downloadArgs);
-                console.log(`[YT-DLP] Command: ${command.replace(PO_TOKEN, '***')}`);
-                await execAsync(command, { maxBuffer: 100 * 1024 * 1024 });
-            }
+            const { stderr } = await execAsync(command, { maxBuffer: 100 * 1024 * 1024 });
+            if (stderr) console.log('[YT-DLP] Download stderr:', stderr);
         }
 
-        console.log('[DOWNLOAD] Complete, checking file...');
+        console.log('[DOWNLOAD] Processing complete, checking file...');
 
         // Wait a bit for filesystem to sync
         await new Promise(resolve => setTimeout(resolve, 500));
 
+        // Check if output file exists
+        let finalOutputPath = outputPath;
         if (!fs.existsSync(outputPath)) {
-            // Check for file with different extension (yt-dlp might add .mp4 automatically)
+            // Check for file with different extension
             const possiblePaths = [
                 outputPath,
                 outputPath.replace('.mp4', '.webm'),
-                outputPath.replace('.mp4', '.mkv')
+                outputPath.replace('.mp4', '.mkv'),
+                outputPath.replace('.mp3', '.m4a'),
+                outputPath.replace('.mp3', '.opus')
             ];
 
-            let foundPath = null;
             for (const p of possiblePaths) {
                 if (fs.existsSync(p)) {
-                    foundPath = p;
+                    finalOutputPath = p;
+                    console.log(`[DOWNLOAD] Found file at: ${finalOutputPath}`);
                     break;
                 }
             }
 
-            if (!foundPath) {
-                throw new Error('Output file not found after download');
+            if (!fs.existsSync(finalOutputPath)) {
+                // List directory to debug
+                console.log(`[DOWNLOAD] Files in ${downloadsDir}:`);
+                const files = fs.readdirSync(downloadsDir);
+                files.forEach((f: string) => console.log(`  - ${f}`));
+                throw new Error(`Output file not found. Expected: ${outputPath}`);
             }
         }
 
-        const stats = fs.statSync(outputPath);
+        const stats = fs.statSync(finalOutputPath);
+        console.log(`[DOWNLOAD] Success! File size: ${(stats.size / 1024 / 1024).toFixed(2)} MB`);
+
         res.setHeader('Content-Type', format === 'mp3' ? 'audio/mpeg' : 'video/mp4');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.setHeader('Content-Length', stats.size);
 
-        const fileStream = fs.createReadStream(outputPath);
+        const fileStream = fs.createReadStream(finalOutputPath);
         fileStream.pipe(res);
 
-        fileStream.on('end', () => cleanup(outputPath));
-        fileStream.on('error', (err: any) => console.error('Stream error:', err));
+        fileStream.on('end', () => cleanup(finalOutputPath));
+        fileStream.on('error', (err: any) => {
+            console.error('[STREAM] Error:', err);
+        });
 
     } catch (error: any) {
-        console.error('Download failed:', error.message);
-        console.error('Stderr:', error.stderr);
-        res.status(500).json({ error: 'Download failed', details: error.message });
+        logYtDlpError(error, 'Download process');
+        res.status(500).json({
+            error: 'Download failed',
+            details: error.message,
+            stderr: error.stderr || 'No stderr available'
+        });
         cleanup([outputPath, tempVideoPath, tempAudioPath]);
     }
 });
@@ -280,8 +373,13 @@ nextApp.prepare().then(() => {
     app.listen(PORT, (err?: any) => {
         if (err) throw err;
         console.log(`> Ready on http://localhost:${PORT}`);
-        console.log(`> Cookies file: ${hasCookies() ? 'Found' : 'Not found'} at ${COOKIES_FILE}`);
-        console.log(`> PO-Token: ${PO_TOKEN ? 'Configured' : 'Not set'}`);
-        console.log(`> Visitor Data: ${VISITOR_DATA ? 'Configured' : 'Not set'}`);
+        console.log('='.repeat(50));
+        console.log('[CONFIG] Environment:');
+        console.log(`  - NODE_ENV: ${process.env.NODE_ENV}`);
+        console.log(`  - YouTube cookies: ${hasCookies(COOKIES_FILE) ? 'Found' : 'NOT FOUND'} (${COOKIES_FILE})`);
+        console.log(`  - Instagram cookies: ${hasCookies(COOKIES_INSTAGRAM) ? 'Found' : 'NOT FOUND'} (${COOKIES_INSTAGRAM})`);
+        console.log(`  - PO-Token: ${PO_TOKEN ? 'Configured (' + PO_TOKEN.substring(0, 10) + '...)' : 'NOT SET'}`);
+        console.log(`  - Visitor Data: ${VISITOR_DATA ? 'Configured' : 'NOT SET'}`);
+        console.log('='.repeat(50));
     });
 });

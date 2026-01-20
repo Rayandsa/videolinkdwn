@@ -12,4 +12,5 @@ dist/
 *.webm
 server/downloads/
 cookies.txt
+cookies_instagram.txt
 *.cookies.txt
