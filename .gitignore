@@ -8,4 +8,8 @@ dist/
 *.mp4
 *.avi
 *.mkv
+*.mp3
+*.webm
 server/downloads/
+cookies.txt
+*.cookies.txt

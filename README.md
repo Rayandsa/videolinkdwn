@@ -1,36 +1,100 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Video Link Downloader
 
-## Getting Started
+A modern web application to download videos from YouTube, Instagram, and TikTok.
 
-First, run the development server:
+## Features
+
+- 🎬 Download videos from YouTube, Instagram, and TikTok
+- 🎵 Extract audio as MP3
+- 📱 Mobile-friendly responsive design
+- 🚀 Deployed on Render with Docker
+
+## 2026 YouTube Method
+
+This application uses the "2026 method" for YouTube downloads, which bypasses common restrictions:
+
+### Environment Variables
+
+Set these in your Render dashboard (or `.env` file for local development):
+
+| Variable | Description |
+|----------|-------------|
+| `COOKIES_FILE` | Path to your YouTube cookies file (default: `/app/cookies.txt`) |
+| `PO_TOKEN` | YouTube PO-Token for authentication bypass |
+| `VISITOR_DATA` | YouTube Visitor Data for session persistence |
+
+### How to Get YouTube Cookies
+
+1. Install a browser extension like "Get cookies.txt LOCALLY"
+2. Log in to YouTube in your browser
+3. Export cookies to `cookies.txt`
+4. Upload the file to your server
+
+### How to Get PO-Token and Visitor Data
+
+1. Open YouTube in your browser
+2. Open Developer Tools (F12)
+3. Go to Network tab
+4. Play a video and look for requests to `youtubei/v1/player`
+5. Find `po_token` and `visitor_data` in the request payload
+
+## Local Development
 
 ```bash
+# Install dependencies
+npm install
+
+# Run development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+
+# Open http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Deployment to Render
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Push code to GitHub
+2. Create a new Web Service on Render
+3. Connect your GitHub repository
+4. Set Runtime to "Docker"
+5. Add environment variables (COOKIES_FILE, PO_TOKEN, VISITOR_DATA)
+6. Deploy!
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Tech Stack
 
-## Learn More
+- **Frontend**: Next.js 16, React, TypeScript
+- **Backend**: Express.js, Node.js
+- **Video Processing**: yt-dlp, FFmpeg
+- **Deployment**: Docker, Render
 
-To learn more about Next.js, take a look at the following resources:
+## File Structure
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```
+├── app/                 # Next.js frontend
+├── server/
+│   └── server.ts        # Express backend with yt-dlp integration
+├── Dockerfile           # Docker configuration
+├── tsconfig.server.json # TypeScript config for server
+└── cookies.txt          # YouTube cookies (not in git)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Troubleshooting
 
-## Deploy on Vercel
+### YouTube downloads fail with 403 error
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Ensure you have a valid `cookies.txt` file
+2. Set `PO_TOKEN` and `VISITOR_DATA` environment variables
+3. The application uses yt-dlp nightly builds for latest fixes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Videos have no audio
+
+The application automatically downloads video and audio separately and merges them using FFmpeg.
+
+### Memory issues on Render
+
+The free tier has 512MB RAM limit. If you encounter memory issues:
+1. Reduce video quality in download options
+2. Upgrade to a paid Render plan
+
+## License
+
+MIT
