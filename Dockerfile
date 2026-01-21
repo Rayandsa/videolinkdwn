@@ -2,16 +2,18 @@
 # Use Node.js base image (Bookworm has Python 3.11, required by yt-dlp)
 FROM node:20-bookworm-slim
 
-# Install Python, FFmpeg, curl, and yt-dlp (nightly build for latest YouTube fixes)
+# Install Python, FFmpeg, curl, and yt-dlp (stable version via pip)
 RUN apt-get update && \
     apt-get install -y python3 python3-pip python-is-python3 ffmpeg curl unzip && \
     pip3 install --break-system-packages yt-dlp && \
-    yt-dlp -U --update-to nightly && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Verify ffmpeg installation
-RUN ffmpeg -version && yt-dlp --version
+# Verify installations
+RUN echo "=== Checking installations ===" && \
+    ffmpeg -version | head -1 && \
+    yt-dlp --version && \
+    python --version
 
 # Set working directory
 WORKDIR /app
@@ -34,11 +36,15 @@ RUN npm run build
 # Compile the custom server (server.ts -> dist/server.js)
 RUN npx tsc --project tsconfig.server.json
 
+# Ensure downloads directory has correct permissions after build
+RUN mkdir -p /app/dist/downloads && chmod -R 777 /app/dist/downloads
+
 # Set production environment for runtime
 ENV NODE_ENV=production
 
-# Environment variables for 2026 method (set these in Render dashboard)
+# Environment variables for 2026 method (set these in Render/Oracle dashboard)
 # ENV COOKIES_FILE=/app/cookies.txt
+# ENV COOKIES_INSTAGRAM=/app/cookies_instagram.txt
 # ENV PO_TOKEN=your_po_token_here
 # ENV VISITOR_DATA=your_visitor_data_here
 
