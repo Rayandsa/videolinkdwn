@@ -2,10 +2,10 @@
 # Use Node.js base image (Bookworm has Python 3.11)
 FROM node:20-bookworm-slim
 
-# Install Python, FFmpeg, and pytubefix
+# Install Python, FFmpeg, and Python packages
 RUN apt-get update && \
     apt-get install -y python3 python3-pip python-is-python3 ffmpeg && \
-    pip3 install --break-system-packages pytubefix && \
+    pip3 install --break-system-packages pytubefix requests && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

@@ -1,38 +1,177 @@
 #!/usr/bin/env python3
 """
-YouTube Downloader using pytubefix with OAuth authentication
+YouTube Downloader using pytubefix with anti-detection features
+- OAuth authentication
+- Proxy rotation
+- Dynamic User-Agent
+- Persistent session
 """
 
 import sys
 import os
 import json
 import subprocess
+import random
+import pickle
 from pathlib import Path
+from typing import Optional, List
 
+import requests
 from pytubefix import YouTube
 from pytubefix.cli import on_progress
 
 
-# OAuth token cache location (set via environment or default)
-OAUTH_TOKEN_FILE = os.environ.get('OAUTH_TOKEN_FILE', '/app/__cache__/tokens.json')
+# === CONFIGURATION ===
+
+# User-Agent pool (recent browsers)
+USER_AGENTS = [
+    # Chrome Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    # Chrome macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+    # Firefox Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+    # Firefox macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
+    # Safari
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    # Edge
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+]
+
+# Proxy list (format: http://user:pass@host:port or http://host:port)
+# Set via environment variable PROXY_LIST (comma-separated)
+PROXY_LIST = os.environ.get('PROXY_LIST', '').split(',') if os.environ.get('PROXY_LIST') else []
+
+# Session file for persistence
+SESSION_FILE = os.environ.get('SESSION_FILE', '/app/__cache__/session.pkl')
+COOKIES_FILE = os.environ.get('COOKIES_FILE', '/app/__cache__/cookies.pkl')
+
+
+def get_random_user_agent() -> str:
+    """Get a random User-Agent from the pool"""
+    return random.choice(USER_AGENTS)
+
+
+def get_random_proxy() -> Optional[dict]:
+    """Get a random proxy from the list"""
+    if not PROXY_LIST or PROXY_LIST == ['']:
+        return None
+    
+    proxy = random.choice([p for p in PROXY_LIST if p.strip()])
+    if not proxy:
+        return None
+    
+    return {
+        'http': proxy.strip(),
+        'https': proxy.strip()
+    }
+
+
+def load_session() -> requests.Session:
+    """Load or create a persistent session"""
+    session = requests.Session()
+    
+    # Set default headers to look like a real browser
+    session.headers.update({
+        'User-Agent': get_random_user_agent(),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,fr;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0',
+    })
+    
+    # Load saved cookies if available
+    if os.path.exists(COOKIES_FILE):
+        try:
+            with open(COOKIES_FILE, 'rb') as f:
+                session.cookies.update(pickle.load(f))
+            print(f"[SESSION] Loaded cookies from {COOKIES_FILE}")
+        except Exception as e:
+            print(f"[SESSION] Could not load cookies: {e}")
+    
+    return session
+
+
+def save_session_cookies(session: requests.Session):
+    """Save session cookies for persistence"""
+    try:
+        Path(os.path.dirname(COOKIES_FILE)).mkdir(parents=True, exist_ok=True)
+        with open(COOKIES_FILE, 'wb') as f:
+            pickle.dump(session.cookies, f)
+        print(f"[SESSION] Saved cookies to {COOKIES_FILE}")
+    except Exception as e:
+        print(f"[SESSION] Could not save cookies: {e}")
+
+
+def create_youtube_client(url: str) -> YouTube:
+    """Create YouTube client with anti-detection features"""
+    user_agent = get_random_user_agent()
+    proxy = get_random_proxy()
+    
+    print(f"[ANTI-DETECT] User-Agent: {user_agent[:50]}...")
+    if proxy:
+        print(f"[ANTI-DETECT] Using proxy: {list(proxy.values())[0][:30]}...")
+    
+    # Create YouTube object with OAuth
+    yt = YouTube(
+        url,
+        on_progress_callback=on_progress,
+        use_oauth=True,
+        allow_oauth_cache=True,
+        proxies=proxy  # pytubefix supports proxies
+    )
+    
+    return yt
+
+
+def warm_up_session(session: requests.Session):
+    """Warm up the session by visiting YouTube homepage first"""
+    try:
+        proxy = get_random_proxy()
+        headers = {'User-Agent': get_random_user_agent()}
+        
+        print("[SESSION] Warming up - visiting YouTube...")
+        response = session.get(
+            'https://www.youtube.com/',
+            headers=headers,
+            proxies=proxy,
+            timeout=10
+        )
+        print(f"[SESSION] Warm-up status: {response.status_code}")
+        
+        # Save any cookies received
+        save_session_cookies(session)
+        
+    except Exception as e:
+        print(f"[SESSION] Warm-up failed: {e}")
 
 
 def download_video(url: str, output_dir: str, filename_base: str, format_type: str = "mp4"):
-    """
-    Download YouTube video using pytubefix with OAuth authentication
-    """
+    """Download YouTube video with anti-detection"""
     try:
         print(f"[PYTUBEFIX] Starting download for: {url}")
         print(f"[PYTUBEFIX] Output: {output_dir}/{filename_base}.{format_type}")
-        print(f"[PYTUBEFIX] OAuth token file: {OAUTH_TOKEN_FILE}")
         
-        # Create YouTube object with OAuth authentication
-        yt = YouTube(
-            url,
-            on_progress_callback=on_progress,
-            use_oauth=True,
-            allow_oauth_cache=True
-        )
+        # Load persistent session
+        session = load_session()
+        
+        # Warm up session (simulate real user)
+        warm_up_session(session)
+        
+        # Create YouTube client with anti-detection
+        yt = create_youtube_client(url)
         
         print(f"[PYTUBEFIX] Title: {yt.title}")
         print(f"[PYTUBEFIX] Author: {yt.author}")
@@ -175,14 +314,14 @@ def download_video(url: str, output_dir: str, filename_base: str, format_type: s
 
 
 def get_info(url: str):
-    """Get video metadata with OAuth"""
+    """Get video metadata with anti-detection"""
     try:
-        yt = YouTube(
-            url,
-            on_progress_callback=on_progress,
-            use_oauth=True,
-            allow_oauth_cache=True
-        )
+        # Load session and warm up
+        session = load_session()
+        warm_up_session(session)
+        
+        # Create YouTube client
+        yt = create_youtube_client(url)
         
         return {
             "success": True,
