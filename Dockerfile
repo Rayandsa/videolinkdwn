@@ -2,19 +2,18 @@
 # Use Node.js base image (Bookworm has Python 3.11)
 FROM node:20-bookworm-slim
 
-# Install Python, FFmpeg, and download engines
+# Install Python, FFmpeg, and pytubefix
 RUN apt-get update && \
-    apt-get install -y python3 python3-pip python-is-python3 ffmpeg curl unzip && \
-    pip3 install --break-system-packages pytubefix yt-dlp && \
+    apt-get install -y python3 python3-pip python-is-python3 ffmpeg && \
+    pip3 install --break-system-packages pytubefix && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Verify installations
-RUN echo "=== Checking installations ===" && \
-    ffmpeg -version | head -1 && \
-    python -c "import pytubefix; print(f'pytubefix version: {pytubefix.__version__}')" && \
-    yt-dlp --version && \
-    python --version
+RUN echo "=== Installation Check ===" && \
+    python --version && \
+    python -c "from pytubefix import YouTube; print('pytubefix OK')" && \
+    ffmpeg -version | head -1
 
 # Set working directory
 WORKDIR /app
@@ -22,38 +21,32 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install Node dependencies
 RUN npm install
 
-# Copy source code
+# Copy ALL source code (including downloader.py at root)
 COPY . .
 
-# Create directories with permissions
+# Create downloads directory with permissions
 RUN mkdir -p /app/dist/downloads && chmod -R 777 /app/dist/downloads
-RUN mkdir -p /app/scripts && chmod -R 755 /app/scripts
 
-# Build the Next.js app
+# Build Next.js
 RUN npm run build
 
-# Compile the custom server
+# Compile TypeScript server
 RUN npx tsc --project tsconfig.server.json
 
-# Ensure downloads directory permissions after build
-RUN mkdir -p /app/dist/downloads && chmod -R 777 /app/dist/downloads
+# Ensure permissions after build
+RUN chmod -R 777 /app/dist/downloads
+RUN chmod +x /app/downloader.py
 
-# Copy Python scripts to dist
-RUN cp -r /app/scripts /app/dist/scripts 2>/dev/null || true
-
-# Set production environment
+# Production mode
 ENV NODE_ENV=production
 
-# Environment variables (set in Render/Oracle dashboard)
-# ENV COOKIES_FILE=/app/cookies.txt
-# ENV PO_TOKEN=your_po_token_here
-# ENV VISITOR_DATA=your_visitor_data_here
+# Environment variables (set in dashboard)
+# ENV PO_TOKEN=your_token
+# ENV VISITOR_DATA=your_data
 
-# Expose port
 EXPOSE 3000
 
-# Start the application
 CMD ["node", "dist/server.js"]
