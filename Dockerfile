@@ -1,52 +1,44 @@
 
-# Use Node.js base image (Bookworm has Python 3.11)
+# Node.js + Python (Bookworm = Python 3.11)
 FROM node:20-bookworm-slim
 
-# Install Python, FFmpeg, and Python packages
+# Install Python, FFmpeg, pytubefix, and yt-dlp
 RUN apt-get update && \
     apt-get install -y python3 python3-pip python-is-python3 ffmpeg && \
-    pip3 install --break-system-packages pytubefix requests && \
+    pip3 install --break-system-packages pytubefix yt-dlp && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # Verify installations
-RUN echo "=== Installation Check ===" && \
+RUN echo "=== Verification ===" && \
     python --version && \
-    python -c "from pytubefix import YouTube; print('pytubefix OK')" && \
+    python -c "from pytubefix import YouTube; print('pytubefix: OK')" && \
+    yt-dlp --version && \
     ffmpeg -version | head -1
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-
 # Install Node dependencies
+COPY package*.json ./
 RUN npm install
 
-# Copy ALL source code (including downloader.py at root)
+# Copy source
 COPY . .
 
-# Create directories with permissions
+# Create downloads directory
 RUN mkdir -p /app/dist/downloads && chmod -R 777 /app/dist/downloads
-RUN mkdir -p /app/__cache__ && chmod -R 777 /app/__cache__
 
 # Build Next.js
 RUN npm run build
 
-# Compile TypeScript server
+# Compile TypeScript
 RUN npx tsc --project tsconfig.server.json
 
-# Ensure permissions after build
-RUN chmod -R 777 /app/dist/downloads
-RUN chmod -R 777 /app/__cache__
+# Permissions
 RUN chmod +x /app/downloader.py
+RUN chmod -R 777 /app/dist/downloads
 
-# Production mode
 ENV NODE_ENV=production
-
-# OAuth token file location (pytubefix cache)
-ENV OAUTH_TOKEN_FILE=/app/__cache__/tokens.json
 
 EXPOSE 3000
 
