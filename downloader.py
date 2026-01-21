@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-YouTube Downloader using pytubefix
-Based on working Colab implementation
+YouTube Downloader using pytubefix with OAuth authentication
 """
 
 import sys
@@ -14,17 +13,26 @@ from pytubefix import YouTube
 from pytubefix.cli import on_progress
 
 
+# OAuth token cache location (set via environment or default)
+OAUTH_TOKEN_FILE = os.environ.get('OAUTH_TOKEN_FILE', '/app/__cache__/tokens.json')
+
+
 def download_video(url: str, output_dir: str, filename_base: str, format_type: str = "mp4"):
     """
-    Download YouTube video using pytubefix
-    Exactly like the working Colab code
+    Download YouTube video using pytubefix with OAuth authentication
     """
     try:
         print(f"[PYTUBEFIX] Starting download for: {url}")
         print(f"[PYTUBEFIX] Output: {output_dir}/{filename_base}.{format_type}")
+        print(f"[PYTUBEFIX] OAuth token file: {OAUTH_TOKEN_FILE}")
         
-        # Create YouTube object - simple like Colab
-        yt = YouTube(url, on_progress_callback=on_progress)
+        # Create YouTube object with OAuth authentication
+        yt = YouTube(
+            url,
+            on_progress_callback=on_progress,
+            use_oauth=True,
+            allow_oauth_cache=True
+        )
         
         print(f"[PYTUBEFIX] Title: {yt.title}")
         print(f"[PYTUBEFIX] Author: {yt.author}")
@@ -66,10 +74,10 @@ def download_video(url: str, output_dir: str, filename_base: str, format_type: s
             }
         
         else:
-            # Video - get highest resolution (like Colab)
+            # Video - get highest resolution
             print("[PYTUBEFIX] Mode: Video (MP4)")
             
-            # First try: get_highest_resolution (progressive - has audio included)
+            # First try: progressive stream (has audio included)
             ys = yt.streams.get_highest_resolution()
             
             if ys:
@@ -167,9 +175,14 @@ def download_video(url: str, output_dir: str, filename_base: str, format_type: s
 
 
 def get_info(url: str):
-    """Get video metadata"""
+    """Get video metadata with OAuth"""
     try:
-        yt = YouTube(url, on_progress_callback=on_progress)
+        yt = YouTube(
+            url,
+            on_progress_callback=on_progress,
+            use_oauth=True,
+            allow_oauth_cache=True
+        )
         
         return {
             "success": True,

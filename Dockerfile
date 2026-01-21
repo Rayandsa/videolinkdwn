@@ -27,8 +27,9 @@ RUN npm install
 # Copy ALL source code (including downloader.py at root)
 COPY . .
 
-# Create downloads directory with permissions
+# Create directories with permissions
 RUN mkdir -p /app/dist/downloads && chmod -R 777 /app/dist/downloads
+RUN mkdir -p /app/__cache__ && chmod -R 777 /app/__cache__
 
 # Build Next.js
 RUN npm run build
@@ -38,14 +39,14 @@ RUN npx tsc --project tsconfig.server.json
 
 # Ensure permissions after build
 RUN chmod -R 777 /app/dist/downloads
+RUN chmod -R 777 /app/__cache__
 RUN chmod +x /app/downloader.py
 
 # Production mode
 ENV NODE_ENV=production
 
-# Environment variables (set in dashboard)
-# ENV PO_TOKEN=your_token
-# ENV VISITOR_DATA=your_data
+# OAuth token file location (pytubefix cache)
+ENV OAUTH_TOKEN_FILE=/app/__cache__/tokens.json
 
 EXPOSE 3000
 

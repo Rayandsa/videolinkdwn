@@ -13,10 +13,6 @@ const handle = nextApp.getRequestHandler();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Configuration
-const PO_TOKEN = process.env.PO_TOKEN || '';
-const VISITOR_DATA = process.env.VISITOR_DATA || '';
-
 // Python script path - downloader.py at project root
 const DOWNLOADER_SCRIPT = process.env.NODE_ENV === 'production'
     ? '/app/downloader.py'
@@ -28,15 +24,11 @@ app.use(express.json());
 // Execute Python downloader.py
 const runPython = (args: string[]): Promise<any> => {
     return new Promise((resolve, reject) => {
-        const env = {
-            ...process.env,
-            PO_TOKEN: PO_TOKEN,
-            VISITOR_DATA: VISITOR_DATA
-        };
-
         console.log(`[PYTHON] python3 ${DOWNLOADER_SCRIPT} ${args.join(' ')}`);
 
-        const python = spawn('python3', [DOWNLOADER_SCRIPT, ...args], { env });
+        const python = spawn('python3', [DOWNLOADER_SCRIPT, ...args], {
+            env: process.env
+        });
         let output = '';
         let errors = '';
 
@@ -128,7 +120,7 @@ app.post('/api/info', async (req: any, res: any) => {
         res.status(500).json({
             error: 'Failed to fetch video info',
             details: error.message,
-            suggestion: 'Check if PO_TOKEN is valid'
+            suggestion: 'OAuth token may have expired. Re-authenticate on the server.'
         });
     }
 });
@@ -201,17 +193,15 @@ app.post('/api/download', async (req: any, res: any) => {
         res.status(500).json({
             error: 'Download failed',
             details: error.message,
-            suggestion: 'Check if PO_TOKEN is valid or try a different video'
+            suggestion: 'OAuth token may have expired. Re-authenticate on the server.'
         });
     }
 });
 
-// Token status
-app.get('/api/token-status', (req: any, res: any) => {
+// Auth status
+app.get('/api/auth-status', (req: any, res: any) => {
     res.json({
-        hasPOToken: !!PO_TOKEN,
-        hasVisitorData: !!VISITOR_DATA,
-        poTokenPreview: PO_TOKEN ? PO_TOKEN.substring(0, 15) + '...' : null,
+        method: 'OAuth',
         engine: 'pytubefix'
     });
 });
@@ -225,13 +215,9 @@ nextApp.prepare().then(() => {
         console.log('');
         console.log('═'.repeat(50));
         console.log('  VIDEO LINK DOWNLOADER');
-        console.log('  Engine: pytubefix (100% Python)');
+        console.log('  Engine: pytubefix with OAuth');
         console.log('═'.repeat(50));
         console.log(`  URL: http://localhost:${PORT}`);
-        console.log('');
-        console.log('  Configuration:');
-        console.log(`  ├─ PO_TOKEN: ${PO_TOKEN ? '✓ (' + PO_TOKEN.substring(0, 10) + '...)' : '✗ NOT SET'}`);
-        console.log(`  └─ VISITOR_DATA: ${VISITOR_DATA ? '✓' : '✗ NOT SET'}`);
         console.log('');
         console.log(`  Downloader: ${DOWNLOADER_SCRIPT}`);
         console.log(`  Script exists: ${fs.existsSync(DOWNLOADER_SCRIPT) ? '✓' : '✗'}`);
