@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-YouTube Downloader - pytubefix ONLY
-Simple comme le code Colab qui fonctionne
+YouTube Downloader - pytubefix optimized
+Based on official pytubefix documentation
 """
 
 import sys
@@ -17,9 +17,9 @@ from pytubefix.cli import on_progress
 def list_qualities(url: str):
     """Liste les qualités disponibles pour une vidéo"""
     try:
-        yt = YouTube(url, on_progress_callback=on_progress)
+        # OAuth pour gérer les vidéos avec restriction d'âge
+        yt = YouTube(url, use_oauth=True, allow_oauth_cache=True, on_progress_callback=on_progress)
         
-        # Récupérer les streams vidéo disponibles
         streams = yt.streams.filter(adaptive=True, only_video=True).order_by('resolution').desc()
         
         qualities = []
@@ -48,7 +48,7 @@ def list_qualities(url: str):
 def get_info(url: str):
     """Récupère les métadonnées de la vidéo"""
     try:
-        yt = YouTube(url, on_progress_callback=on_progress)
+        yt = YouTube(url, use_oauth=True, allow_oauth_cache=True, on_progress_callback=on_progress)
         
         return {
             "success": True,
@@ -78,9 +78,11 @@ def download(url: str, output_dir: str, filename_base: str,
         print(f"[PYTUBEFIX] URL: {url}")
         print(f"[PYTUBEFIX] Format: {format_type}, Quality: {quality}")
         
-        yt = YouTube(url, on_progress_callback=on_progress)
+        # OAuth avec cache pour gérer les restrictions
+        yt = YouTube(url, use_oauth=True, allow_oauth_cache=True, on_progress_callback=on_progress)
         
         print(f"[PYTUBEFIX] Title: {yt.title}")
+        print(f"[PYTUBEFIX] Author: {yt.author}")
         
         Path(output_dir).mkdir(parents=True, exist_ok=True)
         
@@ -88,30 +90,35 @@ def download(url: str, output_dir: str, filename_base: str,
             # === AUDIO UNIQUEMENT (MP3) ===
             print("[PYTUBEFIX] Mode: Audio (MP3)")
             
+            # Méthode officielle: get_audio_only()
             audio_stream = yt.streams.get_audio_only()
             if not audio_stream:
                 return {"success": False, "error": "Aucun flux audio disponible"}
             
-            temp_file = os.path.join(output_dir, f"{filename_base}_temp.m4a")
-            final_file = os.path.join(output_dir, f"{filename_base}.mp3")
+            print(f"[PYTUBEFIX] Audio stream: {audio_stream.abr}")
             
-            print(f"[PYTUBEFIX] Téléchargement audio: {audio_stream.abr}")
-            audio_stream.download(output_path=output_dir, filename=f"{filename_base}_temp.m4a")
+            # Télécharger avec output_path (méthode recommandée)
+            temp_filename = f"{filename_base}_temp"
+            downloaded_file = audio_stream.download(output_path=output_dir, filename=temp_filename)
+            print(f"[PYTUBEFIX] Downloaded: {downloaded_file}")
             
             # Conversion en MP3 avec FFmpeg
-            print("[FFMPEG] Conversion en MP3...")
+            final_file = os.path.join(output_dir, f"{filename_base}.mp3")
+            print("[FFMPEG] Converting to MP3...")
+            
             result = subprocess.run([
-                'ffmpeg', '-i', temp_file,
+                'ffmpeg', '-i', downloaded_file,
                 '-vn', '-acodec', 'libmp3lame', '-q:a', '0',
                 final_file, '-y'
             ], capture_output=True, text=True)
             
             if result.returncode != 0:
-                print(f"[FFMPEG] Erreur: {result.stderr[:200]}")
+                print(f"[FFMPEG] Warning: {result.stderr[:200]}")
             
-            # Nettoyage
-            if os.path.exists(temp_file):
-                os.remove(temp_file)
+            # Nettoyage du fichier temporaire
+            if os.path.exists(downloaded_file):
+                os.remove(downloaded_file)
+                print(f"[CLEANUP] Removed temp file")
             
             return {
                 "success": True,
@@ -123,20 +130,40 @@ def download(url: str, output_dir: str, filename_base: str,
             # === VIDEO + AUDIO (MP4) ===
             print("[PYTUBEFIX] Mode: Video (MP4)")
             
-            # Sélection du flux vidéo selon la qualité demandée
+            # D'abord essayer get_highest_resolution() (stream progressif = vidéo + audio)
+            progressive_stream = yt.streams.get_highest_resolution()
+            
+            if progressive_stream:
+                print(f"[PYTUBEFIX] Progressive stream available: {progressive_stream.resolution}")
+                
+                # Si qualité demandée est inférieure ou égale, utiliser le progressif
+                if quality == "highest" or quality == progressive_stream.resolution:
+                    final_file = os.path.join(output_dir, f"{filename_base}.mp4")
+                    downloaded = progressive_stream.download(output_path=output_dir, filename=f"{filename_base}.mp4")
+                    print(f"[PYTUBEFIX] Downloaded: {downloaded}")
+                    
+                    return {
+                        "success": True,
+                        "path": final_file,
+                        "title": yt.title,
+                        "quality": progressive_stream.resolution
+                    }
+            
+            # Sinon, utiliser les streams adaptatifs (meilleure qualité possible)
+            print("[PYTUBEFIX] Using adaptive streams for higher quality...")
+            
+            # Sélection du flux vidéo
             if quality == "highest":
                 video_stream = yt.streams.filter(
                     adaptive=True, only_video=True
                 ).order_by('resolution').desc().first()
             else:
-                # Qualité spécifique (ex: "1080p", "720p")
                 video_stream = yt.streams.filter(
                     adaptive=True, only_video=True, resolution=quality
                 ).first()
                 
-                # Fallback si qualité non disponible
                 if not video_stream:
-                    print(f"[PYTUBEFIX] Qualité {quality} non disponible, utilisation de la meilleure")
+                    print(f"[PYTUBEFIX] Quality {quality} not available, using highest")
                     video_stream = yt.streams.filter(
                         adaptive=True, only_video=True
                     ).order_by('resolution').desc().first()
@@ -144,42 +171,39 @@ def download(url: str, output_dir: str, filename_base: str,
             audio_stream = yt.streams.get_audio_only()
             
             if not video_stream or not audio_stream:
-                # Fallback: stream progressif (qualité moindre mais garanti)
-                print("[PYTUBEFIX] Fallback: stream progressif")
-                progressive = yt.streams.get_highest_resolution()
-                if progressive:
+                # Dernier recours: stream progressif
+                if progressive_stream:
                     final_file = os.path.join(output_dir, f"{filename_base}.mp4")
-                    progressive.download(output_path=output_dir, filename=f"{filename_base}.mp4")
+                    progressive_stream.download(output_path=output_dir, filename=f"{filename_base}.mp4")
                     return {
                         "success": True,
                         "path": final_file,
                         "title": yt.title,
-                        "quality": progressive.resolution
+                        "quality": progressive_stream.resolution
                     }
                 return {"success": False, "error": "Aucun flux disponible"}
             
-            print(f"[PYTUBEFIX] Vidéo: {video_stream.resolution} | Audio: {audio_stream.abr}")
+            print(f"[PYTUBEFIX] Video: {video_stream.resolution} @ {video_stream.fps}fps")
+            print(f"[PYTUBEFIX] Audio: {audio_stream.abr}")
             
-            # Téléchargement des flux séparés
-            video_ext = video_stream.subtype or 'mp4'
-            audio_ext = audio_stream.subtype or 'm4a'
+            # Téléchargement des flux
+            video_filename = f"{filename_base}_video"
+            audio_filename = f"{filename_base}_audio"
             
-            temp_video = os.path.join(output_dir, f"{filename_base}_video.{video_ext}")
-            temp_audio = os.path.join(output_dir, f"{filename_base}_audio.{audio_ext}")
-            final_file = os.path.join(output_dir, f"{filename_base}.mp4")
+            print("[PYTUBEFIX] Downloading video stream...")
+            video_file = video_stream.download(output_path=output_dir, filename=video_filename)
             
-            print("[PYTUBEFIX] Téléchargement vidéo...")
-            video_stream.download(output_path=output_dir, filename=f"{filename_base}_video.{video_ext}")
-            
-            print("[PYTUBEFIX] Téléchargement audio...")
-            audio_stream.download(output_path=output_dir, filename=f"{filename_base}_audio.{audio_ext}")
+            print("[PYTUBEFIX] Downloading audio stream...")
+            audio_file = audio_stream.download(output_path=output_dir, filename=audio_filename)
             
             # Fusion avec FFmpeg
-            print("[FFMPEG] Fusion vidéo + audio...")
+            final_file = os.path.join(output_dir, f"{filename_base}.mp4")
+            print("[FFMPEG] Merging video + audio...")
+            
             result = subprocess.run([
                 'ffmpeg',
-                '-i', temp_video,
-                '-i', temp_audio,
+                '-i', video_file,
+                '-i', audio_file,
                 '-c:v', 'copy',
                 '-c:a', 'aac',
                 '-strict', 'experimental',
@@ -187,21 +211,21 @@ def download(url: str, output_dir: str, filename_base: str,
             ], capture_output=True, text=True)
             
             if result.returncode != 0:
-                print("[FFMPEG] Tentative avec réencodage...")
+                print(f"[FFMPEG] Copy failed, trying re-encode...")
                 subprocess.run([
                     'ffmpeg',
-                    '-i', temp_video,
-                    '-i', temp_audio,
+                    '-i', video_file,
+                    '-i', audio_file,
                     '-c:v', 'libx264', '-preset', 'fast',
                     '-c:a', 'aac',
                     final_file, '-y'
                 ], capture_output=True)
             
-            # Nettoyage des fichiers temporaires
-            for temp in [temp_video, temp_audio]:
-                if os.path.exists(temp):
-                    os.remove(temp)
-                    print(f"[CLEANUP] Supprimé: {os.path.basename(temp)}")
+            # Nettoyage
+            for f in [video_file, audio_file]:
+                if os.path.exists(f):
+                    os.remove(f)
+                    print(f"[CLEANUP] Removed: {os.path.basename(f)}")
             
             return {
                 "success": True,
@@ -212,7 +236,7 @@ def download(url: str, output_dir: str, filename_base: str,
     
     except Exception as e:
         import traceback
-        print(f"[ERREUR] {str(e)}")
+        print(f"[ERROR] {str(e)}")
         traceback.print_exc()
         return {"success": False, "error": str(e)}
 
