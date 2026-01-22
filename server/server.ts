@@ -91,16 +91,28 @@ const runPytubefix = (args: string[]): Promise<any> => {
 
 // === INSTAGRAM/TIKTOK via yt-dlp ===
 
-const runYtDlp = async (url: string, outputPath: string, format: string): Promise<any> => {
+const COOKIES_FILE = '/app/cookies_instagram.txt';
+
+const runYtDlp = async (url: string, outputPath: string, format: string, platform: string): Promise<any> => {
     let cmd: string;
 
-    if (format === 'mp3') {
-        cmd = `yt-dlp -f bestaudio --extract-audio --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${url}"`;
+    // Check for cookies file
+    const hasCookies = fs.existsSync(COOKIES_FILE);
+    const cookiesArg = hasCookies ? `--cookies "${COOKIES_FILE}"` : '';
+
+    if (hasCookies) {
+        console.log(`[YT-DLP] Using cookies: ${COOKIES_FILE}`);
     } else {
-        cmd = `yt-dlp -f "bestvideo+bestaudio/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
+        console.log(`[YT-DLP] No cookies file found at ${COOKIES_FILE}`);
     }
 
-    console.log(`[YT-DLP] ${cmd}`);
+    if (format === 'mp3') {
+        cmd = `yt-dlp ${cookiesArg} -f bestaudio --extract-audio --audio-format mp3 --audio-quality 0 -o "${outputPath}" "${url}"`;
+    } else {
+        cmd = `yt-dlp ${cookiesArg} -f "bestvideo+bestaudio/best" --merge-output-format mp4 -o "${outputPath}" "${url}"`;
+    }
+
+    console.log(`[YT-DLP] ${cmd.replace(cookiesArg, '[cookies]')}`);
 
     try {
         await execAsync(cmd, { maxBuffer: 100 * 1024 * 1024, timeout: 300000 });
@@ -211,7 +223,7 @@ app.post('/api/download', async (req: any, res: any) => {
             ]);
         } else {
             // === INSTAGRAM/TIKTOK → yt-dlp ===
-            result = await runYtDlp(url, outputPath, format);
+            result = await runYtDlp(url, outputPath, format, platform);
         }
 
         if (!result.success) throw new Error(result.error);
